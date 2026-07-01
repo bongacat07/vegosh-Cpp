@@ -1,14 +1,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
-#include <vector>
 #include "rapidhash.h"
-constexpr size_t TABLE_SIZE = 1<<21;
-constexpr size_t MASK = TABLE_SIZE-1 ;
+#include <assert.h>
+constexpr size_t KEY_LEN = 16;
+constexpr size_t VALUE_LEN = 32;
+constexpr size_t TABLE_SIZE = 1<<21; //Since the max key limit is 1_000_000. The closest 2 power bit mask is 1<<21
+constexpr size_t MASK = TABLE_SIZE-1 ; //bit mask
 constexpr size_t MAX_KEYS = 1000000;
 constexpr uint8_t EMPTY = 0x00;
 constexpr uint8_t OCCUPIED = 0X01;
+
 struct alignas(64)Slot {
     uint8_t key[16];
     uint8_t value[32];
@@ -19,44 +21,48 @@ struct alignas(64)Slot {
     uint8_t padding[4];
 
 };
+
+//The hashmap has two fields
 struct Vegosh {
-    Slot slots [TABLE_SIZE];
+    Slot slots[TABLE_SIZE];
     size_t count;
 };
 static_assert(sizeof(Slot) == 64, "Slot must be 64 bytes");
 static_assert(alignof(Slot) == 64, "Slot must be 64 byte aligned");
 
+static Vegosh global_table;
 
 Vegosh* init(){
-    Vegosh *table = new Vegosh();
-    table->count = 0;
-    memset(table->slots, 0, sizeof(Slot) * TABLE_SIZE);
-    return table;
+    global_table.count = 0;
+    memset(global_table.slots, 0, sizeof(Slot) * TABLE_SIZE);
+    return &global_table;
 }
 inline uint64_t hash_key(const uint8_t *key) {
     return rapidhash(key, 16);
 }
 
 int insert(Vegosh *table, const uint8_t *key, const uint8_t *value, uint8_t value_len) {
+
+    assert(table != nullptr);
+    assert(key != nullptr);
+    assert(value != nullptr);
+    assert(value_len <= VALUE_LEN);
+
     if (table->count >= MAX_KEYS) return -1;
 
     uint64_t hash = hash_key(key);
     size_t index = hash & MASK;
 
-    uint8_t v[32] = {};
-    uint8_t n = value_len < 32 ? value_len : 32;
-    memcpy(v, value, n);
-    __builtin_prefetch(&table[index + 2], 1, 3);
     Slot incoming = {};
-    memcpy(incoming.key, key, 16);
-    memcpy(incoming.value, v, 32);
-    incoming.hash           = hash;
-    incoming.value_len      = value_len;
-    incoming.status         = OCCUPIED;
-    incoming.probe_distance = 0;
+        memcpy(incoming.key, key, KEY_LEN);
+        memcpy(incoming.value, value, VALUE_LEN);
+        incoming.hash           = hash;
+        incoming.value_len      = value_len;
+        incoming.status         = OCCUPIED;
+        incoming.probe_distance = 0;
 
     while (true) {
-        __builtin_prefetch(&table->slots[index + 2], 1, 3);
+        __builtin_prefetch(&table->slots[(index + 2) & MASK], 1, 3);
         Slot *slot = &table->slots[index];
 
         if (slot->status == EMPTY) {
@@ -88,7 +94,7 @@ int get(Vegosh *table, const uint8_t *key, uint8_t *out_value, uint8_t *out_valu
     uint16_t dist = 0;
 
     while (true) {
-        __builtin_prefetch(&table->slots[index + 2], 0, 3);
+        __builtin_prefetch(&table->slots[(index + 2) & MASK], 0, 3);
         Slot *slot = &table->slots[index];
 
         if (slot->status == EMPTY) return -1;
@@ -112,7 +118,7 @@ int delete_key(Vegosh *table, const uint8_t *key) {
     uint16_t dist = 0;
 
     while (true) {
-        __builtin_prefetch(&table->slots[index + 2], 1, 3);
+        __builtin_prefetch(&table->slots[(index + 2) & MASK], 1, 3);
         Slot *slot = &table->slots[index];
 
         if (slot->status == EMPTY) return -1;
@@ -148,18 +154,4 @@ size_t size(Vegosh *table) {
 void clear(Vegosh *table) {
     memset(table->slots, 0, sizeof(Slot) * TABLE_SIZE);
     table->count = 0;
-}
-
-
-int main() {
-    std::cout << "Hello, World!" << std::endl;
-    std::vector<uint8_t> raw_bytes = {
-        0x12, 0x34, 0x56, 0x78,
-        0x99, 0xAA, 0xBB, 0xCC,
-        0xDD, 0xEE, 0xFF, 0x11,
-        0x22, 0x33, 0x44, 0x55
-    };
-    uint64_t hash = hash_key(raw_bytes.data());
-    std::cout<<"Hash: "<<hash<<std::endl;
-    return 0;
 }
