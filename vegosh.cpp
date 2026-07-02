@@ -1,3 +1,5 @@
+
+#include <assert.h>
 #include "vegosh.hpp"
 // Resets the global table to empty and returns a pointer to it.
 // Call once at startup before using insert/get/delete_key.
@@ -5,12 +7,6 @@ void init(Vegosh *table) {
     assert(table != nullptr);
     table->count = 0;
     memset(table->slots, 0, sizeof(Slot) * TABLE_SIZE);
-}
-
-// Hashes a fixed-size key. Wraps rapidhash so callers don't need to
-// remember to pass KEY_LEN everywhere.
-inline uint64_t hash_key(const uint8_t *key) {
-    return rapidhash(key, KEY_LEN);
 }
 
 // Inserts a key/value pair, or updates the value if the key already exists.
